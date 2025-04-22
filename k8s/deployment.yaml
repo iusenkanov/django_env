@@ -18,4 +18,3 @@ spec:
           image: ghcr.io/your-org/django_env:1.0.1
           ports:
             - containerPort: 8081
-
