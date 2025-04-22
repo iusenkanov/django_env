@@ -1,0 +1,21 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: django_env
+  namespace: django_env
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: django_env
+  template:
+    metadata:
+      labels:
+        app: django_env
+    spec:
+      containers:
+        - name: django_env
+          image: ghcr.io/your-org/django_env:1.0.1
+          ports:
+            - containerPort: 8081
+
