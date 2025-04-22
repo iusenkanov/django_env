@@ -89,3 +89,4 @@ PyJWT~=2.8.0
 elastic-transport==8.13.0
 elasticsearch==8.13.1
 llama-index-core==0.10.59
+sentry-sdk[django]
