@@ -1,0 +1,88 @@
+name: Deploy to ECS
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  build-and-deploy:
+    name: Build, Push to ECR, and Deploy to ECS
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::564621394902:role/github-actions-role
+          aws-region: us-west-1
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: Log in to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v1
+
+      - name: Build, tag, and push Docker image to ECR
+        run: |
+          # Set image name
+          IMAGE_NAME=564621394902.dkr.ecr.us-west-1.amazonaws.com/playground-service
+
+          # Generate a unique tag using Git commit SHA
+          IMAGE_TAG=$(git rev-parse --short HEAD)
+          
+          # Build the Docker image
+          docker build -t $IMAGE_NAME:$IMAGE_TAG .
+
+          # Push the image to ECR
+          docker push $IMAGE_NAME:$IMAGE_TAG
+
+          # Persist IMAGE_NAME and IMAGE_TAG across steps
+          echo "IMAGE_NAME=$IMAGE_NAME" >> $GITHUB_ENV
+          echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV          
+
+      - name: Create new task definition for ECS
+        id: task-def
+        run: |
+          echo "IMAGE_NAME: $IMAGE_NAME"
+          echo "IMAGE_TAG: $IMAGE_TAG"
+
+          # Task definition file path
+          TASK_DEF_FILE=task-definition.json
+
+          # Use jq to update the task definition with the new image
+          jq --arg IMAGE "$IMAGE_NAME:$IMAGE_TAG" '.containerDefinitions[0].image = $IMAGE' task-definition.json > new-task-def.json
+
+          # Register the new task definition and capture the ARN
+          TASK_DEFINITION_ARN=$(aws ecs register-task-definition --cli-input-json file://new-task-def.json --query 'taskDefinition.taskDefinitionArn' --output text)
+
+          # Set the ARN as output
+          echo "TASK_DEFINITION_ARN=$TASK_DEFINITION_ARN" >> $GITHUB_ENV
+
+      - name: Update ECS service with new task definition
+        run: |
+          # Update the ECS service to use the new task definition
+          aws ecs update-service \
+            --cluster backend-services \
+            --service playground-services \
+            --task-definition ${{ env.TASK_DEFINITION_ARN }}
+
+      # Step : Notify Sentry of new Release 
+      - name: Notify Sentry of Release
+        uses: getsentry/action-release@v1
+        with:
+          environment: test
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: bckg
+          SENTRY_PROJECT: python-django
+          SENTRY_RELEASE: ${{ github.sha }}
